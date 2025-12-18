@@ -1,49 +1,83 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Search, ShoppingBasket, ExternalLink, Info, AlertCircle, CheckCircle, TrendingDown, RefreshCcw, ShoppingCart, Zap, Package, Store, Clock, Key } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Search, ShoppingBasket, ExternalLink, Info, AlertCircle, CheckCircle, TrendingDown, RefreshCcw, ShoppingCart, Zap } from 'lucide-react';
 import { comparePrices } from './services/geminiService';
 import { ComparisonResult, GroceryItem } from './types';
 
-// Extend window for AI Studio helpers
-declare global {
-  /* Define the AIStudio interface to ensure identical modifiers and alignment with existing types */
-  interface AIStudio {
-    hasSelectedApiKey(): Promise<boolean>;
-    openSelectKey(): Promise<void>;
-  }
+// PriceCard component handles individual platform pricing details
+const PriceCard: React.FC<{ item: GroceryItem; isBest: boolean }> = ({ item, isBest }) => {
+  return (
+    <div className={`
+      relative bg-white rounded-[2.5rem] p-6 sm:p-8 flex flex-col gap-6 transition-all duration-300
+      ${isBest ? 'ring-4 ring-green-600 shadow-2xl shadow-green-100 scale-105 z-10' : 'border border-slate-100 shadow-xl shadow-slate-100/50 hover:border-green-200'}
+    `}>
+      {isBest && (
+        <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-green-600 text-white px-6 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-lg flex items-center gap-1.5 whitespace-nowrap">
+          <Zap className="w-3 h-3 fill-current" /> Best Deal
+        </div>
+      )}
 
-  interface Window {
-    /* Use the named AIStudio interface as required by the execution context's type system */
-    aistudio: AIStudio;
-  }
-}
+      <div className="flex justify-between items-start">
+        <div className="bg-slate-50 px-4 py-2 rounded-2xl text-xs font-black text-slate-400 uppercase tracking-tighter border border-slate-100">
+          {item.platform}
+        </div>
+        {item.isAvailable ? (
+          <CheckCircle className="w-6 h-6 text-green-500" />
+        ) : (
+          <AlertCircle className="w-6 h-6 text-slate-300" />
+        )}
+      </div>
+
+      <div className="flex-1">
+        <h4 className="text-slate-900 font-extrabold text-xl mb-1 line-clamp-2 leading-tight">
+          {item.productName}
+        </h4>
+        <p className="text-slate-400 text-sm font-medium">Standard Unit Size</p>
+      </div>
+
+      <div className="flex items-end justify-between gap-4 mt-auto pt-6 border-t border-slate-50">
+        <div>
+          <span className="text-slate-400 text-sm font-bold block mb-1 uppercase tracking-wider">Price</span>
+          <div className="flex items-baseline gap-1">
+            <span className="text-slate-900 text-3xl font-black">{item.currency} {item.price}</span>
+          </div>
+        </div>
+        
+        {item.link ? (
+          <a 
+            href={item.link} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className={`
+              p-3.5 rounded-2xl transition-all active:scale-90 shadow-lg
+              ${isBest ? 'bg-green-600 text-white hover:bg-green-700 shadow-green-200' : 'bg-slate-900 text-white hover:bg-black shadow-slate-200'}
+            `}
+          >
+            <ExternalLink className="w-5 h-5" />
+          </a>
+        ) : (
+          <div className="p-3.5 rounded-2xl bg-slate-100 text-slate-400 cursor-not-allowed">
+            <ShoppingCart className="w-5 h-5" />
+          </div>
+        )}
+      </div>
+      
+      {!item.isAvailable && (
+        <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] rounded-[2.5rem] flex items-center justify-center">
+          <div className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-black text-sm uppercase tracking-widest rotate-[-12deg] shadow-2xl">
+            Out of Stock
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const App: React.FC = () => {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ComparisonResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [needsKey, setNeedsKey] = useState(false);
-
-  useEffect(() => {
-    const checkKey = async () => {
-      // If process.env.API_KEY is not set, we might need the user to select one
-      if (!process.env.API_KEY) {
-        const hasKey = await window.aistudio.hasSelectedApiKey();
-        if (!hasKey) {
-          setNeedsKey(true);
-        }
-      }
-    };
-    checkKey();
-  }, []);
-
-  const handleSelectKey = async () => {
-    await window.aistudio.openSelectKey();
-    // After triggering, we proceed assuming success as per guidelines
-    setNeedsKey(false);
-    setError(null);
-  };
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,11 +90,10 @@ const App: React.FC = () => {
       setResult(data);
     } catch (err: any) {
       console.error("App Search Error:", err);
-      if (err.message === "API_KEY_MISSING" || err.message === "API_KEY_INVALID") {
-        setNeedsKey(true);
-      } else {
-        setError(err.message || "Failed to fetch price comparison. Please try again later.");
-      }
+      const errorMessage = err.message === "API_KEY_MISSING" || err.message === "API_KEY_INVALID"
+        ? "API configuration issue. Please check your environment setup."
+        : (err.message || "Failed to fetch price comparison. Please try again later.");
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -80,37 +113,8 @@ const App: React.FC = () => {
     return available.length > 0 ? available[0].price : null;
   }, [sortedItems]);
 
-  if (needsKey) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
-        <div className="bg-white p-8 sm:p-12 rounded-[3rem] border-2 border-slate-100 shadow-2xl max-w-lg w-full text-center space-y-8 animate-in fade-in zoom-in">
-          <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto shadow-inner">
-            <Key className="w-12 h-12 text-green-600" />
-          </div>
-          <div className="space-y-4">
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight leading-tight">Setup Required</h1>
-            <p className="text-slate-500 font-medium leading-relaxed">
-              To fetch live grocery prices, an API key is required. Please select a key from your Google AI Studio account.
-            </p>
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-left">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Requirement</p>
-              <p className="text-sm text-slate-600">Select an API key from a <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-green-600 underline font-bold">paid GCP project</a> to access Search Grounding features.</p>
-            </div>
-          </div>
-          <button 
-            onClick={handleSelectKey}
-            className="w-full bg-green-600 text-white py-5 rounded-3xl font-black text-lg hover:bg-green-700 transition-all active:scale-[0.98] shadow-xl shadow-green-100 flex items-center justify-center gap-3"
-          >
-            <Key className="w-6 h-6" /> Select API Key
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-green-100 selection:text-green-900">
-      {/* Navbar */}
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 h-16 sm:h-20 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-green-600 font-black text-lg sm:text-2xl shrink-0 tracking-tight">
@@ -186,7 +190,6 @@ const App: React.FC = () => {
 
         {result && !loading && (
           <div className="space-y-8 sm:space-y-12 animate-in fade-in slide-in-from-bottom-6 duration-500">
-            {/* Summary Banner */}
             <div className="flex flex-col lg:flex-row gap-6 lg:items-center justify-between">
               <div className="px-1">
                 <h2 className="text-2xl sm:text-4xl font-black text-slate-900 tracking-tight mb-2 uppercase italic">
@@ -210,7 +213,6 @@ const App: React.FC = () => {
               )}
             </div>
 
-            {/* Price Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
               {sortedItems.map((item, idx) => (
                 <PriceCard 
@@ -221,24 +223,24 @@ const App: React.FC = () => {
               ))}
             </div>
 
-            {/* Verification Footer */}
+            {/* Verification Footer with extracted URLs from groundingChunks */}
             {result.sources.length > 0 && (
-              <div className="mt-12 bg-white rounded-[2.5rem] p-6 sm:p-10 border border-slate-200 shadow-sm">
-                <div className="flex items-center gap-3 mb-6">
-                  <Info className="w-5 h-5 text-green-600" />
-                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Verified Sources</h3>
+              <div className="mt-12 pt-8 border-t border-slate-200">
+                <div className="flex items-center gap-2 mb-6 text-slate-400">
+                  <Info className="w-4 h-4" />
+                  <span className="text-xs font-bold uppercase tracking-widest">Verified Sources & Research</span>
                 </div>
-                <div className="flex flex-wrap gap-2 sm:gap-4">
+                <div className="flex flex-wrap gap-3">
                   {result.sources.map((source, i) => (
                     <a 
-                      key={i}
-                      href={source.uri}
-                      target="_blank"
+                      key={i} 
+                      href={source.uri} 
+                      target="_blank" 
                       rel="noopener noreferrer"
-                      className="group flex items-center gap-2.5 bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-600 hover:bg-green-50 hover:border-green-200 hover:text-green-700 transition-all"
+                      className="bg-white border border-slate-200 px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:border-green-400 hover:text-green-600 transition-all flex items-center gap-2 shadow-sm"
                     >
-                      <span className="truncate max-w-[150px] sm:max-w-[250px]">{source.title}</span>
-                      <ExternalLink className="w-3.5 h-3.5 text-slate-300 group-hover:text-green-500 transition-colors" />
+                      <ExternalLink className="w-3 h-3" />
+                      {source.title}
                     </a>
                   ))}
                 </div>
@@ -248,147 +250,22 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <footer className="bg-white border-t border-slate-200 py-10 px-4">
-        <div className="max-w-6xl mx-auto text-center space-y-2">
-          <p className="text-slate-400 text-xs sm:text-sm font-medium">
-            © {new Date().getFullYear()} QuickPrice Compare • All prices are subject to change.
+      <footer className="bg-slate-900 text-slate-500 py-12 px-4 text-center mt-20">
+        <div className="max-w-6xl mx-auto">
+          <div className="flex items-center justify-center gap-2 text-white font-black text-xl mb-4">
+            <ShoppingBasket className="w-6 h-6 text-green-500" />
+            QuickPrice
+          </div>
+          <p className="text-sm max-w-md mx-auto mb-8 font-medium">
+            Helping you save money on every grocery run with real-time price comparisons across India's top quick commerce platforms.
           </p>
-          <p className="text-slate-500 text-xs sm:text-sm font-bold">
-            Designed and developed by <span className="text-green-600">Debajyoti Roy</span> with ❤
-          </p>
+          <div className="flex items-center justify-center gap-6 text-xs font-bold uppercase tracking-[0.2em]">
+            <span className="hover:text-white cursor-pointer transition-colors">About</span>
+            <span className="hover:text-white cursor-pointer transition-colors">Privacy</span>
+            <span className="hover:text-white cursor-pointer transition-colors">Terms</span>
+          </div>
         </div>
       </footer>
-    </div>
-  );
-};
-
-const PriceCard: React.FC<{ item: GroceryItem; isBest?: boolean }> = ({ item, isBest }) => {
-  const getPlatformStyle = (platform: string) => {
-    switch(platform) {
-      case 'Blinkit': 
-        return { 
-          text: 'text-yellow-700', 
-          bg: 'bg-yellow-50', 
-          border: 'border-yellow-200', 
-          button: 'bg-yellow-400 hover:bg-yellow-500 text-black',
-          logo: <Zap className="w-4 h-4 text-yellow-600 fill-yellow-600" />
-        };
-      case 'Zepto': 
-        return { 
-          text: 'text-purple-700', 
-          bg: 'bg-purple-50', 
-          border: 'border-purple-200', 
-          button: 'bg-purple-600 hover:bg-purple-700 text-white',
-          logo: <Clock className="w-4 h-4 text-purple-600" />
-        };
-      case 'Swiggy Instamart': 
-        return { 
-          text: 'text-orange-700', 
-          bg: 'bg-orange-50', 
-          border: 'border-orange-200', 
-          button: 'bg-orange-600 hover:bg-orange-700 text-white',
-          logo: <ShoppingCart className="w-4 h-4 text-orange-600" />
-        };
-      case 'JioMart': 
-        return { 
-          text: 'text-blue-700', 
-          bg: 'bg-blue-50', 
-          border: 'border-blue-200', 
-          button: 'bg-blue-700 hover:bg-blue-800 text-white',
-          logo: <Store className="w-4 h-4 text-blue-600" />
-        };
-      case 'Flipkart Minutes': 
-        return { 
-          text: 'text-sky-800', 
-          bg: 'bg-sky-50', 
-          border: 'border-sky-200', 
-          button: 'bg-sky-600 hover:bg-sky-700 text-white',
-          logo: <Package className="w-4 h-4 text-sky-600" />
-        };
-      default: 
-        return { 
-          text: 'text-slate-700', 
-          bg: 'bg-slate-50', 
-          border: 'border-slate-200', 
-          button: 'bg-slate-900 hover:bg-black text-white',
-          logo: <ShoppingCart className="w-4 h-4 text-slate-500" />
-        };
-    }
-  };
-
-  const style = getPlatformStyle(item.platform);
-
-  return (
-    <div className={`relative flex flex-col h-full bg-white rounded-[2.5rem] border-4 transition-all p-6 sm:p-8 ${
-      isBest ? 'border-green-500 shadow-2xl shadow-green-100 scale-[1.03]' : 'border-transparent shadow-sm hover:shadow-xl hover:border-slate-100'
-    }`}>
-      {isBest && (
-        <div className="absolute -top-5 left-8 bg-green-600 text-white text-[10px] sm:text-xs font-black uppercase tracking-[0.2em] px-4 py-2 rounded-full flex items-center gap-2 z-10 shadow-lg border border-green-400 ring-4 ring-white">
-          <CheckCircle className="w-3.5 h-3.5 sm:w-4 h-4" />
-          Cheapest Deal
-        </div>
-      )}
-
-      <div className="flex justify-between items-start mb-6">
-        <div className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-[10px] sm:text-xs font-black uppercase tracking-widest border-2 ${style.text} ${style.bg} ${style.border} shadow-sm`}>
-          {style.logo}
-          {item.platform}
-        </div>
-        {item.isAvailable ? (
-          <div className="flex items-center gap-1.5 text-[10px] font-black text-green-600 bg-green-50 px-3 py-1.5 rounded-full border border-green-100">
-            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-            STOCK OK
-          </div>
-        ) : (
-          <div className="text-[10px] font-black text-red-500 bg-red-50 px-3 py-1.5 rounded-full border border-red-100">
-            SOLD OUT
-          </div>
-        )}
-      </div>
-
-      <div className="flex-grow mb-6">
-        <h4 className="text-xl sm:text-2xl font-black text-slate-900 leading-tight mb-2 group-hover:text-green-600 transition-colors">
-          {item.productName || 'Product unlisted'}
-        </h4>
-        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Live Inventory Price</p>
-      </div>
-
-      <div className="mt-auto space-y-6">
-        <div className="flex items-end justify-between border-t-2 border-slate-50 pt-6">
-          <div className="flex flex-col">
-            <span className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Pricing</span>
-            {item.isAvailable ? (
-              <div className="flex items-baseline gap-0.5 mt-1">
-                <span className="text-xl font-black text-slate-400 mr-0.5 tracking-tighter">₹</span>
-                <span className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tighter leading-none">{item.price}</span>
-              </div>
-            ) : (
-              <span className="text-xl font-black text-slate-300 mt-1 italic uppercase">— NA —</span>
-            )}
-          </div>
-          {item.isAvailable && isBest && (
-            <div className="text-green-600 font-black text-[10px] bg-green-100 px-3 py-1.5 rounded-xl border border-green-200">
-              SAVE ₹₹₹
-            </div>
-          )}
-        </div>
-
-        {item.isAvailable && item.link ? (
-          <a
-            href={item.link}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`w-full py-4 px-6 rounded-2xl font-black text-sm sm:text-base text-center flex items-center justify-center gap-3 transition-all shadow-xl active:scale-95 ${style.button}`}
-          >
-            <ShoppingCart className="w-5 h-5" />
-            Order on {item.platform}
-          </a>
-        ) : (
-          <div className="w-full py-4 px-6 rounded-2xl bg-slate-50 text-slate-300 font-black text-sm text-center border-2 border-slate-100 cursor-not-allowed uppercase italic tracking-widest">
-            Notify Me
-          </div>
-        )}
-      </div>
     </div>
   );
 };
