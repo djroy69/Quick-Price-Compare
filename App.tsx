@@ -12,15 +12,16 @@ const App: React.FC = () => {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!query.trim()) return;
+    if (!query.trim() || loading) return;
 
     setLoading(true);
     setError(null);
     try {
       const data = await comparePrices(query);
       setResult(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+    } catch (err: any) {
+      console.error("App Search Error:", err);
+      setError(err.message || "Failed to fetch price comparison. Please try again later.");
     } finally {
       setLoading(false);
     }
@@ -41,16 +42,16 @@ const App: React.FC = () => {
   }, [sortedItems]);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-green-100 selection:text-green-900">
       {/* Navbar */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
+      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 h-16 sm:h-20 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-green-600 font-black text-lg sm:text-2xl shrink-0 tracking-tight">
-            <div className="bg-green-600 p-1.5 rounded-lg">
+            <div className="bg-green-600 p-1.5 rounded-lg shadow-sm shadow-green-200">
               <ShoppingBasket className="w-5 h-5 sm:w-6 h-6 text-white" />
             </div>
+            {/* Hidden text on mobile, shown as 'QuickPrice' from 'sm' breakpoint up */}
             <span className="hidden sm:inline">QuickPrice</span>
-            <span className="sm:hidden">QP</span>
           </div>
           <form onSubmit={handleSearch} className="flex-1 max-w-2xl relative">
             <input
@@ -58,13 +59,13 @@ const App: React.FC = () => {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search groceries (Milk, Bread, etc)..."
-              className="w-full pl-10 pr-24 py-2.5 sm:py-3 bg-slate-100 border-2 border-transparent rounded-2xl focus:ring-0 focus:border-green-500 focus:bg-white transition-all outline-none text-sm sm:text-base"
+              className="w-full pl-10 pr-24 py-2.5 sm:py-3 bg-slate-100 border-2 border-transparent rounded-2xl focus:ring-0 focus:border-green-500 focus:bg-white transition-all outline-none text-sm sm:text-base shadow-inner"
             />
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 h-5 text-slate-400" />
             <button 
               type="submit"
               disabled={loading}
-              className="absolute right-1.5 top-1.5 bottom-1.5 bg-green-600 text-white px-4 sm:px-6 rounded-xl text-xs sm:text-sm font-bold hover:bg-green-700 disabled:opacity-50 transition-all active:scale-95"
+              className="absolute right-1.5 top-1.5 bottom-1.5 bg-green-600 text-white px-4 sm:px-6 rounded-xl text-xs sm:text-sm font-bold hover:bg-green-700 disabled:opacity-50 transition-all active:scale-95 shadow-md shadow-green-100"
             >
               {loading ? '...' : 'Find Price'}
             </button>
@@ -75,8 +76,8 @@ const App: React.FC = () => {
       <main className="flex-grow max-w-6xl mx-auto px-4 py-8 sm:py-12 w-full">
         {!result && !loading && !error && (
           <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in zoom-in duration-700">
-            <div className="w-20 h-20 sm:w-28 sm:h-28 bg-green-50 rounded-full flex items-center justify-center mb-8 relative">
-              <Zap className="absolute -top-1 -right-1 text-yellow-500 w-8 h-8 animate-bounce" />
+            <div className="w-20 h-20 sm:w-28 sm:h-28 bg-green-50 rounded-full flex items-center justify-center mb-8 relative shadow-inner">
+              <Zap className="absolute -top-1 -right-1 text-yellow-500 w-8 h-8 animate-bounce drop-shadow-sm" />
               <ShoppingBasket className="w-10 h-10 sm:w-14 sm:h-14 text-green-600" />
             </div>
             <h1 className="text-3xl sm:text-5xl font-black text-slate-900 mb-4 px-4 tracking-tight leading-tight">
@@ -95,19 +96,21 @@ const App: React.FC = () => {
               <Search className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-green-600" />
             </div>
             <p className="text-slate-700 font-bold text-lg sm:text-xl px-4">Searching Platform Inventories...</p>
-            <p className="text-slate-400 text-sm mt-2 px-4 animate-pulse">Checking live prices for "{query}"</p>
+            <p className="text-slate-400 text-sm mt-2 px-4 animate-pulse italic">Checking live prices for "{query}"</p>
           </div>
         )}
 
         {error && (
-          <div className="bg-red-50 border-2 border-red-100 p-6 rounded-3xl flex flex-col sm:flex-row items-center sm:items-start gap-4 max-w-2xl mx-auto text-center sm:text-left">
-            <AlertCircle className="w-10 h-10 text-red-500 shrink-0" />
+          <div className="bg-white border-2 border-red-100 p-8 sm:p-10 rounded-[2.5rem] flex flex-col items-center gap-6 max-w-2xl mx-auto text-center shadow-xl shadow-red-50 animate-in fade-in slide-in-from-top-4">
+            <div className="bg-red-50 p-4 rounded-full">
+              <AlertCircle className="w-12 h-12 text-red-500 shrink-0" />
+            </div>
             <div>
-              <h3 className="text-lg font-black text-red-800">Something went wrong</h3>
-              <p className="text-red-700 mt-1 font-medium">{error}</p>
+              <h3 className="text-2xl font-black text-slate-900 mb-2">Something went wrong</h3>
+              <p className="text-slate-500 font-medium leading-relaxed max-w-md mx-auto">{error}</p>
               <button 
                 onClick={handleSearch}
-                className="mt-4 bg-red-100 text-red-800 px-6 py-2 rounded-xl text-sm font-bold hover:bg-red-200 transition-all flex items-center gap-2 mx-auto sm:mx-0"
+                className="mt-6 bg-slate-900 text-white px-8 py-3 rounded-2xl text-sm font-bold hover:bg-black transition-all flex items-center gap-2 mx-auto active:scale-95 shadow-lg shadow-slate-200"
               >
                 <RefreshCcw className="w-4 h-4" /> Try Again
               </button>
@@ -125,9 +128,9 @@ const App: React.FC = () => {
                 </h2>
                 <div className="flex items-center gap-2">
                   <div className="flex -space-x-2">
-                    <div className="w-6 h-6 rounded-full bg-yellow-400 border-2 border-white"></div>
-                    <div className="w-6 h-6 rounded-full bg-purple-500 border-2 border-white"></div>
-                    <div className="w-6 h-6 rounded-full bg-orange-500 border-2 border-white"></div>
+                    <div className="w-6 h-6 rounded-full bg-yellow-400 border-2 border-white shadow-sm"></div>
+                    <div className="w-6 h-6 rounded-full bg-purple-500 border-2 border-white shadow-sm"></div>
+                    <div className="w-6 h-6 rounded-full bg-orange-500 border-2 border-white shadow-sm"></div>
                   </div>
                   <span className="text-slate-500 text-xs sm:text-sm font-bold uppercase tracking-widest">Across 5 Platforms</span>
                 </div>
@@ -261,7 +264,7 @@ const PriceCard: React.FC<{ item: GroceryItem; isBest?: boolean }> = ({ item, is
       )}
 
       <div className="flex justify-between items-start mb-6">
-        <div className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-[10px] sm:text-xs font-black uppercase tracking-widest border-2 ${style.text} ${style.bg} ${style.border}`}>
+        <div className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-[10px] sm:text-xs font-black uppercase tracking-widest border-2 ${style.text} ${style.bg} ${style.border} shadow-sm`}>
           {style.logo}
           {item.platform}
         </div>
