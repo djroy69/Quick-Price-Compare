@@ -1,14 +1,49 @@
 
-import React, { useState, useMemo } from 'react';
-import { Search, ShoppingBasket, ExternalLink, Info, AlertCircle, CheckCircle, TrendingDown, RefreshCcw, ShoppingCart, Zap, Package, Store, Clock } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Search, ShoppingBasket, ExternalLink, Info, AlertCircle, CheckCircle, TrendingDown, RefreshCcw, ShoppingCart, Zap, Package, Store, Clock, Key } from 'lucide-react';
 import { comparePrices } from './services/geminiService';
 import { ComparisonResult, GroceryItem } from './types';
+
+// Extend window for AI Studio helpers
+declare global {
+  /* Define the AIStudio interface to ensure identical modifiers and alignment with existing types */
+  interface AIStudio {
+    hasSelectedApiKey(): Promise<boolean>;
+    openSelectKey(): Promise<void>;
+  }
+
+  interface Window {
+    /* Use the named AIStudio interface as required by the execution context's type system */
+    aistudio: AIStudio;
+  }
+}
 
 const App: React.FC = () => {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ComparisonResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [needsKey, setNeedsKey] = useState(false);
+
+  useEffect(() => {
+    const checkKey = async () => {
+      // If process.env.API_KEY is not set, we might need the user to select one
+      if (!process.env.API_KEY) {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        if (!hasKey) {
+          setNeedsKey(true);
+        }
+      }
+    };
+    checkKey();
+  }, []);
+
+  const handleSelectKey = async () => {
+    await window.aistudio.openSelectKey();
+    // After triggering, we proceed assuming success as per guidelines
+    setNeedsKey(false);
+    setError(null);
+  };
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,7 +56,11 @@ const App: React.FC = () => {
       setResult(data);
     } catch (err: any) {
       console.error("App Search Error:", err);
-      setError(err.message || "Failed to fetch price comparison. Please try again later.");
+      if (err.message === "API_KEY_MISSING" || err.message === "API_KEY_INVALID") {
+        setNeedsKey(true);
+      } else {
+        setError(err.message || "Failed to fetch price comparison. Please try again later.");
+      }
     } finally {
       setLoading(false);
     }
@@ -41,6 +80,34 @@ const App: React.FC = () => {
     return available.length > 0 ? available[0].price : null;
   }, [sortedItems]);
 
+  if (needsKey) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
+        <div className="bg-white p-8 sm:p-12 rounded-[3rem] border-2 border-slate-100 shadow-2xl max-w-lg w-full text-center space-y-8 animate-in fade-in zoom-in">
+          <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto shadow-inner">
+            <Key className="w-12 h-12 text-green-600" />
+          </div>
+          <div className="space-y-4">
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight leading-tight">Setup Required</h1>
+            <p className="text-slate-500 font-medium leading-relaxed">
+              To fetch live grocery prices, an API key is required. Please select a key from your Google AI Studio account.
+            </p>
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-left">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Requirement</p>
+              <p className="text-sm text-slate-600">Select an API key from a <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-green-600 underline font-bold">paid GCP project</a> to access Search Grounding features.</p>
+            </div>
+          </div>
+          <button 
+            onClick={handleSelectKey}
+            className="w-full bg-green-600 text-white py-5 rounded-3xl font-black text-lg hover:bg-green-700 transition-all active:scale-[0.98] shadow-xl shadow-green-100 flex items-center justify-center gap-3"
+          >
+            <Key className="w-6 h-6" /> Select API Key
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-green-100 selection:text-green-900">
       {/* Navbar */}
@@ -50,7 +117,6 @@ const App: React.FC = () => {
             <div className="bg-green-600 p-1.5 rounded-lg shadow-sm shadow-green-200">
               <ShoppingBasket className="w-5 h-5 sm:w-6 h-6 text-white" />
             </div>
-            {/* Hidden text on mobile, shown as 'QuickPrice' from 'sm' breakpoint up */}
             <span className="hidden sm:inline">QuickPrice</span>
           </div>
           <form onSubmit={handleSearch} className="flex-1 max-w-2xl relative">
