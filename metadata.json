@@ -1,5 +1,7 @@
 {
   "name": "QuickPrice Compare",
   "description": "A real-time grocery price comparison tool for Blinkit, Zepto, Swiggy Instamart, JioMart, and Flipkart Minutes using Gemini Search Grounding.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "geolocation"
+  ]
 }

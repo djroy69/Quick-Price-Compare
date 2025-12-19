@@ -1,6 +1,6 @@
 
 export interface GroceryItem {
-  platform: 'Blinkit' | 'Zepto' | 'Swiggy Instamart' | 'JioMart' | 'Flipkart Minutes';
+  platform: 'Blinkit' | 'Zepto' | 'Swiggy Instamart' | 'JioMart' | 'Flipkart Minutes' | 'BigBasket Now';
   productName: string;
   price: number;
   currency: string;

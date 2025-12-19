@@ -2,29 +2,59 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ComparisonResult, GroceryItem } from "../types";
 
-export const comparePrices = async (productName: string): Promise<ComparisonResult> => {
-  // Always obtain API key from process.env.API_KEY
+export const comparePrices = async (productName: string, location?: { lat: number; lng: number }): Promise<ComparisonResult> => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
     throw new Error("API_KEY_MISSING");
   }
 
-  // Create instance right before call to ensure we use the current API key
   const ai = new GoogleGenAI({ apiKey });
+
+  // Use Gemini 3 Pro for high-fidelity price extraction from search grounding.
+  const mainModel = "gemini-3-pro-preview";
   
-  const prompt = `Search for the current price and direct purchase link for "${productName}" on the following quick commerce platforms in India: Blinkit, Zepto, Swiggy Instamart, JioMart, and Flipkart Minutes. 
+  const locationContext = location 
+    ? `USER LOCATION: Lat ${location.lat}, Lng ${location.lng}. Ensure prices are specific to this location.`
+    : "USER LOCATION: India (General). Use national average selling prices.";
+
+  const prompt = `ACT AS A SENIOR E-COMMERCE PRICE AUDITOR FOR INDIAN GROCERY PLATFORMS.
   
-  Please provide the price for the most common/standard unit size (e.g., 500g, 1kg, 1L).`;
+  CONTEXT:
+  ${locationContext}
+  USER QUERY: "${productName}"
+
+  MANDATORY PRICING PROTOCOL:
+  1. SELLING PRICE VS MRP (CRITICAL):
+     - Most platforms list two prices: MRP (higher) and Selling Price (lower/discounted).
+     - You MUST report the CURRENT SELLING PRICE (the price the user pays AFTER discounts).
+     - EXAMPLE: If Amul Butter is MRP ₹58 but selling at ₹46, you MUST return 46. Do NOT return 55 or 58.
+     - Cross-check multiple search results to find the active discount.
+  
+  2. PLATFORMS & SEARCH REDIRECT LINKS:
+     - Use the following exact URL templates for the 'link' property.
+     - Replace [QUERY] with the clean search term.
+     - Blinkit: https://blinkit.com/s/?q=[QUERY]
+     - Zepto: https://www.zepto.com/search?query=[QUERY]
+     - Swiggy Instamart: https://www.swiggy.com/instamart/search?query=[QUERY]
+     - JioMart: https://www.jiomart.com/search?q=[QUERY]&sort=price_asc
+     - Flipkart: https://www.flipkart.com/search?q=[QUERY]&sort=price_asc
+     - BigBasket: https://www.bigbasket.com/ps/?q=[QUERY]&sort=price_asc
+
+  3. DATA VERIFICATION:
+     - Prioritize the absolute lowest price found for any variant of "${productName}".
+  
+  OUTPUT JSON FORMAT:
+  - items: Array of objects (platform, productName, price, isAvailable, link).
+  - summary: A 1-sentence audit finding (e.g., "Flipkart has the lowest selling price for Amul Butter at ₹46").`;
 
   try {
-    // Using gemini-3-flash-preview for fast search and grounding
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: mainModel,
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
+        thinkingConfig: { thinkingBudget: 32768 },
         responseMimeType: "application/json",
-        // Using responseSchema is the recommended way to get structured data
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -33,17 +63,14 @@ export const comparePrices = async (productName: string): Promise<ComparisonResu
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  platform: { 
-                    type: Type.STRING,
-                    description: "One of: Blinkit, Zepto, Swiggy Instamart, JioMart, Flipkart Minutes"
-                  },
+                  platform: { type: Type.STRING },
                   productName: { type: Type.STRING },
                   price: { type: Type.NUMBER },
                   currency: { type: Type.STRING },
                   isAvailable: { type: Type.BOOLEAN },
                   link: { type: Type.STRING }
                 },
-                required: ["platform", "productName", "price", "currency", "isAvailable"],
+                required: ["platform", "productName", "price", "isAvailable", "link"],
               }
             },
             summary: { type: Type.STRING }
@@ -53,30 +80,24 @@ export const comparePrices = async (productName: string): Promise<ComparisonResu
       },
     });
 
-    // The .text property returns the JSON string directly when responseMimeType is application/json
     const text = response.text || "{}";
     const parsed = JSON.parse(text);
     
-    // Extracting URLs from groundingChunks as required by Google Search grounding guidelines
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const sources = groundingChunks
       .filter((chunk: any) => chunk.web)
       .map((chunk: any) => ({
-        title: chunk.web.title || "Verified Source",
+        title: chunk.web.title || "Market Source",
         uri: chunk.web.uri
       }));
 
     return {
       items: parsed.items || [],
       sources: sources,
-      summary: parsed.summary || "Search complete."
+      summary: parsed.summary || ""
     };
   } catch (error: any) {
-    console.error("Gemini Service Error:", error);
-    // Handle specific API key errors gracefully
-    if (error.message?.includes("API key not valid") || error.message?.includes("entity was not found")) {
-      throw new Error("API_KEY_INVALID");
-    }
+    console.error("Price Audit Error:", error);
     throw error;
   }
 };
