@@ -1,7 +1,7 @@
 
-import React, { useState, useMemo } from 'react';
-import { Search, ShoppingBasket, ExternalLink, Info, AlertCircle, TrendingDown, TrendingUp, ShoppingCart, Zap, Clock, Package, Store, MapPin, MapPinOff, BrainCircuit, Sparkles, LayoutGrid, X, MessageSquareWarning, ChevronDown, ListFilter } from 'lucide-react';
-import { comparePrices } from './services/geminiService';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Search, ShoppingBasket, ExternalLink, Info, AlertCircle, TrendingDown, TrendingUp, ShoppingCart, Zap, Clock, Package, Store, MapPin, MapPinOff, BrainCircuit, Sparkles, LayoutGrid, X, MessageSquareWarning, ChevronDown, ListFilter, Command, RefreshCcw } from 'lucide-react';
+import { comparePrices, getSuggestions } from './services/geminiService';
 import { ComparisonResult, GroceryItem } from './types';
 
 type SortOption = 'price_asc' | 'price_desc' | 'availability';
@@ -76,6 +76,8 @@ const PriceCard: React.FC<{ item: GroceryItem; isBest: boolean }> = ({ item, isB
 
 const App: React.FC = () => {
   const [query, setQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ComparisonResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +85,36 @@ const App: React.FC = () => {
   const [locStatus, setLocStatus] = useState<'idle' | 'requesting' | 'granted' | 'denied'>('idle');
   const [showPrompt, setShowPrompt] = useState(true);
   const [sortBy, setSortBy] = useState<SortOption>('availability');
+  const suggestionRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+      if (query.trim().length >= 2 && !loading) {
+        try {
+          const list = await getSuggestions(query);
+          setSuggestions(list);
+          setShowSuggestions(list.length > 0);
+        } catch (e) {
+          console.error("Failed to fetch suggestions");
+        }
+      } else {
+        setSuggestions([]);
+        setShowSuggestions(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [query]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (suggestionRef.current && !suggestionRef.current.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const requestLocation = () => {
     setLocStatus('requesting');
@@ -103,13 +135,19 @@ const App: React.FC = () => {
     const activeQuery = (overrideQuery || query).trim();
     if (!activeQuery || loading) return;
 
+    setShowSuggestions(false);
     setLoading(true);
     setError(null);
     try {
       const data = await comparePrices(activeQuery, location || undefined);
       setResult(data);
+      if (overrideQuery) setQuery(overrideQuery);
     } catch (err: any) {
-      setError("Audit failed. Please try again.");
+      if (err.message === "API_KEY_MISSING") {
+        setError("API configuration issue. Please ensure your API key is correctly set up in the environment.");
+      } else {
+        setError("Audit failed. The market is too busy or the product wasn't found.");
+      }
     } finally {
       setLoading(false);
     }
@@ -127,7 +165,6 @@ const App: React.FC = () => {
         sorted.sort((a, b) => b.price - a.price);
         break;
       case 'availability':
-        // Primary: Availability (Available first), Secondary: Price Asc
         sorted.sort((a, b) => {
           if (a.isAvailable !== b.isAvailable) return a.isAvailable ? -1 : 1;
           return a.price - b.price;
@@ -161,24 +198,49 @@ const App: React.FC = () => {
       <header className="bg-white/95 backdrop-blur-xl border-b border-slate-100 sticky top-0 z-50 pt-5 pb-4 shadow-sm">
         <div className="max-w-6xl mx-auto px-4">
           <div className="flex flex-col md:flex-row gap-4 items-center">
-            <div className="flex items-center gap-2.5 shrink-0 group cursor-pointer self-start md:self-center" onClick={() => {setResult(null); setQuery('');}}>
+            <div className="flex items-center gap-2.5 shrink-0 group cursor-pointer self-start md:self-center" onClick={() => {setResult(null); setQuery(''); setSuggestions([]); setError(null);}}>
               <div className="bg-emerald-600 p-2 rounded-xl shadow-lg shadow-emerald-100 transition-transform group-hover:scale-110">
                 <ShoppingBasket className="w-5 h-5 text-white" />
               </div>
               <span className="hidden sm:inline font-black text-xl tracking-tighter text-slate-800 uppercase">QuickPrice</span>
             </div>
             
-            <form onSubmit={handleSearch} className="flex-1 w-full relative group">
-              <input
-                type="text" value={query} onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search Groceries (e.g. Amul Butter)..."
-                className="w-full pl-11 pr-32 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/5 transition-all outline-none text-sm font-semibold"
-              />
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
-              <button type="submit" disabled={loading} className="absolute right-1.5 top-1.5 bottom-1.5 bg-slate-900 text-white px-5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 disabled:opacity-50 transition-all active:scale-95 shadow-md">
-                {loading ? 'AUDITING...' : 'SCAN'}
-              </button>
-            </form>
+            <div className="flex-1 w-full relative" ref={suggestionRef}>
+              <form onSubmit={handleSearch} className="group relative">
+                <input
+                  type="text" value={query} onChange={(e) => setQuery(e.target.value)}
+                  onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                  placeholder="Search Groceries (e.g. Amul Butter)..."
+                  className="w-full pl-11 pr-32 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/5 transition-all outline-none text-sm font-semibold"
+                />
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
+                <button type="submit" disabled={loading} className="absolute right-1.5 top-1.5 bottom-1.5 bg-slate-900 text-white px-5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 disabled:opacity-50 transition-all active:scale-95 shadow-md">
+                  {loading ? 'SCANNING...' : 'SCAN'}
+                </button>
+              </form>
+
+              {showSuggestions && (
+                <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-100 rounded-2xl shadow-2xl overflow-hidden z-[70] animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="p-3 border-b border-slate-50 flex items-center gap-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                    <Command className="w-3 h-3" /> Popular Suggestions
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {suggestions.map((s, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleSearch(undefined, s)}
+                        className="w-full text-left px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors border-b border-slate-50 last:border-0 flex items-center justify-between group"
+                      >
+                        {s}
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-emerald-100 p-1 rounded-md">
+                          <TrendingUp className="w-3 h-3 text-emerald-600" />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
 
             <button onClick={requestLocation} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-black text-[10px] uppercase transition-all border ${locStatus === 'granted' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'}`}>
               {locStatus === 'granted' ? <MapPin className="w-3.5 h-3.5" /> : <MapPinOff className="w-3.5 h-3.5" />}
@@ -189,7 +251,25 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-8 w-full flex-grow">
-        {result && (
+        {error && (
+          <div className="animate-in fade-in zoom-in duration-300 max-w-lg mx-auto mt-12 bg-white rounded-3xl p-8 border border-red-100 shadow-2xl shadow-red-100/50 flex flex-col items-center text-center space-y-6">
+            <div className="bg-red-50 p-4 rounded-full">
+              <AlertCircle className="w-12 h-12 text-red-500" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-xl font-black text-slate-900">Something went wrong</h2>
+              <p className="text-slate-500 text-sm font-medium leading-relaxed">{error}</p>
+            </div>
+            <button 
+              onClick={() => handleSearch()}
+              className="flex items-center gap-2 bg-slate-900 text-white px-8 py-3 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-emerald-600 transition-all active:scale-95"
+            >
+              <RefreshCcw className="w-4 h-4" /> Try Again
+            </button>
+          </div>
+        )}
+
+        {!error && result && (
           <div className="mb-6 bg-slate-900 text-slate-300 py-3 px-6 rounded-2xl flex items-center justify-between gap-4 border border-slate-800 shadow-xl">
              <div className="flex items-center gap-3">
                <div className="bg-emerald-500/20 p-2 rounded-lg"><MessageSquareWarning className="w-4 h-4 text-emerald-400" /></div>
@@ -201,7 +281,7 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {!result && !loading && (
+        {!error && !result && !loading && (
           <div className="py-24 flex flex-col items-center text-center space-y-6 animate-in fade-in duration-700">
             <div className="relative">
               <div className="absolute inset-0 bg-emerald-100 blur-[80px] rounded-full opacity-30 animate-pulse"></div>
@@ -214,6 +294,14 @@ const App: React.FC = () => {
               <p className="text-slate-400 text-base md:text-lg max-w-xl mx-auto font-medium">
                 We find the absolute lowest discounted price today by deep-scanning live inventories.
               </p>
+              
+              <div className="pt-8 flex flex-wrap justify-center gap-3">
+                {['Amul Butter', 'Maggi Masala', 'Tata Salt', 'Dettol Soap'].map((fav) => (
+                  <button key={fav} onClick={() => handleSearch(undefined, fav)} className="px-4 py-2 rounded-full bg-white border border-slate-100 text-[10px] font-black uppercase text-slate-400 hover:border-emerald-500 hover:text-emerald-600 transition-all shadow-sm">
+                    {fav}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -232,7 +320,7 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {result && !loading && (
+        {!error && result && !loading && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 bg-white p-7 rounded-3xl border border-slate-100 shadow-sm">
               <div className="max-w-xl">
@@ -282,4 +370,27 @@ const App: React.FC = () => {
                 <div className="flex flex-wrap gap-3">
                   {result.sources.map((source, i) => (
                     <a key={i} href={source.uri} target="_blank" rel="noopener noreferrer" className="bg-slate-50 px-4 py-2.5 rounded-xl text-[10px] font-bold text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 transition-all flex items-center gap-2 border border-slate-100 shadow-sm group">
-                      <ExternalLink className="w-3 h-3 opacity-30 group-hover:opacity-100 transition
+                      <ExternalLink className="w-3 h-3 opacity-30 group-hover:opacity-100 transition-opacity" />
+                      <span className="max-w-[200px] truncate">{source.title}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      <footer className="py-12 text-center border-t border-slate-100 bg-white mt-auto">
+        <div className="flex flex-col items-center gap-2">
+          <p className="text-[10px] font-black uppercase tracking-[0.5em] text-slate-300">QuickPrice Compare</p>
+          <p className="text-[9px] font-bold text-slate-400 px-6 max-w-lg italic">
+            Disclaimer: Prices reflect discounted selling prices. Final checkout amount depends on platform delivery fees.
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+};
+
+export default App;
